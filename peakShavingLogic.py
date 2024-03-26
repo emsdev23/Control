@@ -129,7 +129,10 @@ def batData():
             if batterySts == '2':
                 batterySts = 'IDLE'
             elif batterySts == '3':
-                batterySts = 'CHG'
+                if batteryCurent > 3:
+                    batterySts = 'CHG'
+                else:
+                    batterySts = 'IDLE'
             elif batterySts == '4':
                     # print(batteryCurent)
                 if batteryCurent > 3:
@@ -283,6 +286,8 @@ while True:
         curtime = datetime.now()
 
         hr = int(str(curtime)[11:13])
+
+        curtime = str(datetime.now())[0:20]
 
         def ProcessOn():
             battData = batData()
@@ -468,7 +473,7 @@ while True:
                     logger.info(curtime)
 
                     message = MIMEMultipart('alternative')
-                    message['Subject'] = f'EMS ALERT -  Peak Demand {peakDemand} LTO Battery ON'
+                    message['Subject'] = f'EMS ALERT -  Peak Demand {round(peakDemand)} LTO Battery ON'
                     message['From'] = sender
                     message['To'] = ', '.join(recipient)
 
@@ -516,7 +521,7 @@ while True:
                         server.login(smtp_username, smtp_password)
                         server.sendmail(sender, recipient, message.as_string())
                         
-                    time.sleep(40)
+                    time.sleep(50)
 
         status = peakres[0][2]
 
@@ -546,165 +551,7 @@ while True:
 
             if count_gd >= 5:
                 ProcessOn()
-        awscur.close()
-        bmscur.close()
-        emscur.close()
 
-    battData = batData()
-    batSts = battData[3]
-    if batSts == 'DCHG':
-        emscur.execute("select polledTime from EMS.PeakAutomation order by polledTime desc limit 1")
-
-        ltoON = emscur.fetchall()
-
-        print(ltoON)
-
-        if ltoON[0][0] != None:
-            print(ltoON[0][0])
-            pkno = 0
-
-            curtime = datetime.now()
-
-            print(curtime)
-
-            secs = (curtime - ltoON[0][0]).total_seconds()
-
-            print("Timer",secs)
-
-            if secs <= 1800:
-                awscur.execute("select dischargeStatus from EMS.peakShavingLogic where date(polledTime) = curdate() order by polledTime desc limit 5")
-
-                stsRes = awscur.fetchall()
-
-                count_nd = 0
-
-                for item in stsRes:
-                    if item == ('GD',):
-                        count_nd += 1
-                
-                print(count_nd)
-
-                if count_nd >= 5:
-                    #--------------------------------------------------------Charge OFF------------------------------------------------------------
-
-                    def setMainOFF():
-                        print("Main OFF called")
-                        logger.info("Main OFF called")
-                        bat_server_ip = "10.9.220.42"  # Replace with your server's IP address
-                        bat_server_port = 15153 
-
-                        bat_client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
-                        try:
-                            bat_client_socket.connect((bat_server_ip, bat_server_port))
-                        except Exception as ex:
-                            print(ex,'to battery')
-                            setMainOFF()
-                        mainOFF = bytes.fromhex("851803FF12FF01FFFFFF000000")
-                        bat_client_socket.send(mainOFF)
-                        BatData = batData()
-                        mainConsSts = BatData[1]
-                        batCur = BatData[4]
-                        print(mainConsSts,batCur)
-                        try:
-                            if mainConsSts == '2':
-                                print("Charge OFF Completed")
-                                logger.info("Charge OFF Completed")
-                                PreOFFchfOg()
-                            else:
-                                print("Main not OFF")
-                                logger.info("Main not OFF")
-                                setMainOFF()
-                        except Exception as ex:
-                            print(ex)
-                            setMainOFF()
-
-                        
-                    def SetOFFCur():
-                        print("current and voltage sending to conv")
-                        cur_mode = bytes.fromhex("1D5A000000090210000C0001020000")
-                        conv_client_socket.send(cur_mode)
-                        setConvVolt = "029A000000090210000D000102"+bat_hex
-                        setConvVolt = bytes.fromhex(setConvVolt)   
-                        conv_client_socket.send(setConvVolt)
-                        time.sleep(2) 
-                        convData = Convertor_data()
-                        try:
-                            convVoltage = int(convData[0])
-                        except Exception:
-                            SetOFFCur()
-                        convCurrent = convData[1]
-                        convOutCur = convData[4]
-                        batVoltage = batData()[0]
-                        print(convVoltage,batVoltage,convCurrent)
-                            # abs(convVoltage - batVoltage) <= 2
-                        try:
-                            if abs(convVoltage - batVoltage) <= 10 and convCurrent == 0 and convOutCur < 2: #and convOutVolt > 300
-                                print("Conv and Bat voltage equal and conv current 0 success")
-                                logger.info(("Conv and Bat voltage equal and conv current 0 success"))
-                                setMainOFF()
-                            else:
-                                print("Conv and Bat voltage not set")
-                                logger.info(("Conv and Bat voltage not set"))
-                                SetOFFCur()
-                        except Exception as ex:
-                            print(ex)
-                            SetOFFCur()
-
-                    def PreOFFchfOg():
-                        bat_server_ip = "10.9.220.42"  # Replace with your server's IP address
-                        bat_server_port = 15153 
-
-                        bat_client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
-                        try:
-                            bat_client_socket.connect((bat_server_ip, bat_server_port))
-                        except Exception as ex:
-                            print(ex,'to battery')
-                            PreOFFchfOg()
-                        preOFF = bytes.fromhex("851803FF1202FFFFFFFF000000")
-                        bat_client_socket.send(preOFF)
-                        preConSts = batData()[2]
-                        try:
-                            if preConSts == '2':
-                                print("Pre OFF Success")
-                                logger.info(("Pre OFF Success."))
-                                time.sleep(2)
-                                checkBatSts()
-                            else:
-                                PreOFFchfOg()
-                        except Exception as ex:
-                            print(ex)
-                            PreOFFchfOg()
-                        
-                    def checkBatSts():
-                        conv_client_socket.send(bytOFF)
-                        print("Byte OFF sent")
-                        logger.info(("Byte OFF sent"))
-                        time.sleep(3)
-                        try:
-                            convByteON = int(Convertor_data()[2])
-                        except Exception:
-                            checkBatSts()
-                        try:
-                            if convByteON == 28:
-                                print("Charge OFF completed")
-                                logger.info(("Charge OFF completed"))
-                                time.sleep(50)
-                            else:
-                                checkBatSts()
-                        except Exception as ex:
-                            print(ex)
-                            checkBatSts()
-                        
-                    def ChargeOFF():
-                        SetOFFCur()
-        awscur.close()
-        bmscur.close()
-        emscur.close()
-
-
-    
     elif hr == 13 or (hr == 17 and mint >= 30):
         try:
             emsdb = mysql.connector.connect(
@@ -741,7 +588,9 @@ while True:
         preConSts = battData[2]
         batSts = battData[3]
 
-        if batSts != 'CHG' and mainConsSts != '3' and preConSts != '3':
+        print(batSts,batVoltage)
+
+        if batSts == 'IDLE' and batVoltage <=400 and mainConsSts != '3' and preConSts != '3':
 
             bat_server_ip = ip_bat  # Replace with your server's IP address
             bat_server_port = 15153 
@@ -973,10 +822,196 @@ while True:
                 server.login(smtp_username, smtp_password)
                 server.sendmail(sender, recipient, message.as_string())
                         
-            time.sleep(40)
-        
-        awscur.close()
-        bmscur.close()
-        emscur.close()
+            time.sleep(50)
 
-    time.sleep(15)
+    battData = batData()
+    batSts = battData[3]
+    if batSts == 'DCHG':
+        try:
+            emsdb = mysql.connector.connect(
+                    host="121.242.232.211",
+                    user="emsroot",
+                    password="22@teneT",
+                    database='bmsunprocessed_prodv13',
+                    port=3306
+                    )
+            bmsdb = mysql.connector.connect(
+                    host="121.242.232.151",
+                    user="emsrouser",
+                    password="emsrouser@151",
+                    database='bmsmgmt_olap_prod_v13',
+                    port=3306
+                    )
+            awsdb = mysql.connector.connect(
+                host="43.205.196.66",
+                user="emsroot",
+                password="22@teneT",
+                port= 3307
+            )
+            awscur = awsdb.cursor()
+            emscur = emsdb.cursor()
+            bmscur = bmsdb.cursor()
+        except Exception as ex:
+            print(ex)
+            continue
+        emscur.execute("select polledTime from EMS.PeakAutomation order by polledTime desc limit 1")
+
+        ltoON = emscur.fetchall()
+
+        print(ltoON)
+
+        if ltoON[0][0] != None:
+            print(ltoON[0][0])
+            pkno = 0
+
+            curtime = datetime.now()
+
+            print(curtime)
+
+            secs = (curtime - ltoON[0][0]).total_seconds()
+
+            print("Timer",secs)
+
+            if secs >=600 and secs <= 1800:
+                awscur.execute("select dischargeStatus from EMS.peakShavingLogic where date(polledTime) = curdate() order by polledTime desc limit 5")
+
+                stsRes = awscur.fetchall()
+
+                count_nd = 0
+
+                for item in stsRes:
+                    if item == ('ND',):
+                        count_nd += 1
+                
+                print(count_nd)
+
+                if count_nd >= 5:
+                    print("Dchg off")
+                    # -------------------------------------------------DischargeOFF---------------------------------------------------------
+                    conv_server_ip = "10.9.220.43"  # Replace with your server's IP address
+                    conv_server_port = 443 
+                            
+                    conv_client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+                    try:
+                        conv_client_socket.connect((conv_server_ip, conv_server_port))
+                    except Exception as ex:
+                        print(ex,'to convertor')
+                        continue
+                    def PreOFFDCof():
+                        bat_server_ip = ip_bat  # Replace with your server's IP address
+                        bat_server_port = 15153 
+
+                        bat_client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+                        try:
+                            bat_client_socket.connect((bat_server_ip, bat_server_port))
+                        except Exception as ex:
+                            print(ex,'to battery')
+                            PreOFFDCof()
+                        preOFF = bytes.fromhex("851803FF1202FFFFFFFF000000")
+                        bat_client_socket.send(preOFF)
+                        preConSts = batData()[2]
+                        print("Pre OFF sent")
+                        logger.info(("Pre OFF sent"))
+                        time.sleep(2) 
+                        try:
+                            if preConSts == '2':
+                                print("Pre OFF Success.")
+                                logger.info("Pre OFF Success.")
+                                time.sleep(3)
+                                checkBatStsDC()
+                            else:
+                                PreOFFDCof()
+                        except Exception as ex:
+                            print(ex)
+                            PreOFFDCof()
+
+                    def setMainOFFDC():
+                        print("Main OFF called")
+                        logger.info("Main OFF called")
+                        bat_server_ip = ip_bat # Replace with your server's IP address
+                        bat_server_port = 15153 
+
+                        bat_client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+                        try:
+                            bat_client_socket.connect((bat_server_ip, bat_server_port))
+                        except Exception as ex:
+                            print(ex,'to battery')
+                            setMainOFFDC()
+                        mainOFF = bytes.fromhex("851803FF12FF01FFFFFF000000")
+                        bat_client_socket.send(mainOFF)
+                        time.sleep(2) 
+                        BatData = batData()
+                        mainConsSts = BatData[1]
+                        batCur = BatData[4]
+                        print(mainConsSts,batCur)
+                        try:
+                            if mainConsSts == '2':
+                                print("Discharge OFF Completed")
+                                logger.info("Discharge OFF Completed")
+                                time.sleep(3)
+                                PreOFFDCof()
+                            else:
+                                print("Main not OFF")
+                                print("Main",mainConsSts)
+                                logger.info("Main not OFF")
+                                logger.info(("Main",mainConsSts))
+                                time.sleep(2)
+                                setMainOFFDC()
+                        except Exception as ex:
+                            print(ex)
+                            setMainOFFDC()
+                    
+                    def SetOFFCurDC():
+                        print("current and voltage sending to conv")
+                        logger.info(("current and voltage sending to conv"))
+                        cur_mode = bytes.fromhex("1D5A000000090210000C0001020000")
+                        conv_client_socket.send(cur_mode)
+                        # setConvVolt = "029A000000090210000D000102"+bat_hex
+                        # setConvVolt = bytes.fromhex(setConvVolt)   
+                        # conv_client_socket.send(setConvVolt) 
+                        time.sleep(2) 
+                        convCurrent = Convertor_data()[1]
+                        convOutVolt = Convertor_data()[3]
+                        convOutCur = Convertor_data()[4]
+                        print(convCurrent)
+                        # abs(convVoltage - batVoltage) <= 2
+                        try:
+                            if convCurrent == 0 and convOutVolt > 300 and convOutCur < 2:
+                                print("Conv and Bat voltage equal and conv current 0 success")
+                                logger.info("Conv and Bat voltage equal and conv current 0 success")
+                                setMainOFFDC()
+                            else:
+                                print("Conv and Bat voltage not set")
+                                logger.info("Conv and Bat voltage not set")
+                                SetOFFCurDC()
+                        except Exception as ex:
+                            print(ex)
+                            SetOFFCurDC()
+                    
+                    
+                    def checkBatStsDC():
+                        conv_client_socket.send(bytOFF)
+                        print("Byte OFF sent")
+                        logger.info(("Byte OFF sent"))
+                        time.sleep(2)
+                        convByteON = int(Convertor_data()[2])
+                        try:
+                            if convByteON == 28:
+                                print("Discharge OFF completed")
+                                time.sleep(50)
+                                logger.info("Discharge OFF completed")
+                            else:
+                                checkBatStsDC()
+                        except Exception as ex:
+                            print(ex)
+                            checkBatStsDC()
+                        
+                    def DischargeOFF():
+                        SetOFFCurDC()
+                    
+                    DischargeOFF()
+
+    time.sleep(10)
