@@ -8,6 +8,7 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
 ip_bat = '10.9.244.1'
+ip_conv = "10.9.244.45"
 
 html_head = """<head>
             <style>
@@ -72,6 +73,8 @@ preON = bytes.fromhex("851803FF1201FFFFFFFF000000")
 
 mainOFF = bytes.fromhex("851803FF12FF01FFFFFF000000")
 
+resetConv = "1187000000090210000F0001020017"
+resetON = bytes.fromhex(resetConv)
 
 def batData():
     bat_server_ip = ip_bat  # Replace with your server's IP address
@@ -170,7 +173,7 @@ def batData():
     return batteryVolt,mainConsSts,preConSts,batterySts,batteryCurent
 
 def Convertor_data():
-    conv_server_ip = "10.9.220.43"  # Replace with your server's IP address
+    conv_server_ip = ip_conv  # Replace with your server's IP address
     conv_server_port = 443 
         
     conv_client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -232,8 +235,14 @@ def Convertor_data():
         outputCurrent = conv_int_lis[8]/10
     except:
         outputCurrent = None
+    
+    try:
+        statusFault = bin(conv_int_lis[10])[2:]
+        statusFault = statusFault.rjust(16,'0')
+    except:
+        statusFault = None
             
-    return voltageSet,currentSet,bytSet,outputVoltage,outputCurrent
+    return voltageSet,currentSet,bytSet,outputVoltage,outputCurrent,statusFault
 
 
 while True:
@@ -246,6 +255,7 @@ while True:
     print(hr)
 
     if (hr >= 9  and hr < 13) or (hr >= 14 and hr <17): 
+        print("Discharge Timing")
         try:
             emsdb = mysql.connector.connect(
                     host="121.242.232.211",
@@ -283,11 +293,77 @@ while True:
         peakDemand = peakres[0][1]
         status = peakres[0][2]
 
+        print(peakDemand)
+
         curtime = datetime.now()
 
         hr = int(str(curtime)[11:13])
 
         curtime = str(datetime.now())[0:20]
+
+        convData = Convertor_data()
+
+        statusFault = convData[5]
+
+        if statusFault != None: 
+            try:
+                inputUnderVoltage = int(statusFault[12])
+            except:
+                inputUnderVoltage = None
+
+            try:
+                inputOverVoltage = int(statusFault[11])
+            except:
+                inputOverVoltage = None
+
+            try:
+                outputUnderVoltage = int(statusFault[10])
+            except:
+                outputUnderVoltage = None
+
+            try:
+                outputOverVoltage = int(statusFault[9])
+            except:
+                outputOverVoltage = None
+
+            try:
+                dcdcTrip = int(statusFault[13])
+            except:
+                dcdcTrip = None
+
+        else:
+            continue
+
+        print("InUnderVolt",inputUnderVoltage)
+        print("InOverVolt",inputOverVoltage)
+        print("OutUnderVolt",outputUnderVoltage)
+        print("OutOverVolt",outputOverVoltage)
+        print("DCDCtrip",dcdcTrip)
+
+        logger.info(("InUnderVolt",inputUnderVoltage))
+        logger.info(("InOverVolt",inputOverVoltage))
+        logger.info(("OutUnderVolt",outputUnderVoltage))
+        logger.info(("OutOverVolt",outputOverVoltage))
+        logger.info(("DCDCtrip",dcdcTrip))
+
+        if inputOverVoltage == 1 or inputUnderVoltage == 1 or outputOverVoltage == 1 or outputUnderVoltage == 1 or dcdcTrip == 1:
+            conv_server_ip = ip_conv  # Replace with your server's IP address
+            conv_server_port = 443 
+                
+            conv_client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+            try:
+                conv_client_socket.connect((conv_server_ip, conv_server_port))
+            except Exception as ex:
+                print(ex,'to convertor')
+                continue
+            # print("inunder :",inputUnderVoltage,"inover :",inputOverVoltage,"outunder :",outputUnderVoltage,"outUnder :",outputOverVoltage)
+            logger.info(("inunder :",inputUnderVoltage,"inover :",inputOverVoltage,"outunder :",outputUnderVoltage,"outUnder :",outputOverVoltage))
+            conv_client_socket.send(resetON)
+            print("Convertor Fault")
+            print("Convertor Reset Sent")
+            logger.info("Convertor Fault")
+            logger.info("Convertor Reset Sent")
 
         def ProcessOn():
             battData = batData()
@@ -302,19 +378,22 @@ while True:
                 if len(bat_hex) == 3:
                     bat_hex = '0'+bat_hex.upper()
             else:
+                time.sleep(2)
                 ProcessOn() 
 
             print(batteryVolt,mainConsSts,preConSts,batSts)
 
-            bmscur.execute("SELECT packUsableSOC FROM bmsmgmtprodv13.ltoBatteryData where date(recordTimestamp) = curdate() order by recordId desc limit 1;")
-
-            packres = bmscur.fetchall()
+            conv_server_ip = ip_conv  # Replace with your server's IP address
+            conv_server_port = 443 
+                
+            conv_client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
             try:
-                packSoc = packres[0][0]
+                conv_client_socket.connect((conv_server_ip, conv_server_port))
             except Exception as ex:
-                print(ex)
-
+                print(ex,'to convertor')
+                time.sleep(2)
+                ProcessOn() 
 
             bat_server_ip = ip_bat  # Replace with your server's IP address
             bat_server_port = 15153 
@@ -326,20 +405,9 @@ while True:
             except Exception as ex:
                 print(ex,'to battery')
                 ProcessOn()
-
-            conv_server_ip = "10.9.220.43"  # Replace with your server's IP address
-            conv_server_port = 443 
-                    
-            conv_client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
-            try:
-                conv_client_socket.connect((conv_server_ip, conv_server_port))
-            except Exception as ex:
-                print(ex,'to convertor')
-                ProcessOn()
             
             if batSts != 'DCHG' and batSts != 'FAULT' and batSts != 'CHG':
-                if batteryVolt >= 399 and batteryVolt <= 420 and packSoc >= 74:
+                if batteryVolt >= 399 and batteryVolt <= 420:
                     def setDCCurrent(crate):
                         dchg_mode = bytes.fromhex(crate)
                         conv_client_socket.send(dchg_mode)
@@ -547,7 +615,7 @@ while True:
                 if item == ('GD',):
                     count_gd += 1
             
-            print(count_gd)
+            print('count GD:',count_gd)
 
             if count_gd >= 5:
                 ProcessOn()
@@ -590,6 +658,70 @@ while True:
 
         print(batSts,batVoltage)
 
+        convData = Convertor_data()
+
+        statusFault = convData[5]
+
+        if statusFault != None: 
+            try:
+                inputUnderVoltage = int(statusFault[12])
+            except:
+                inputUnderVoltage = None
+
+            try:
+                inputOverVoltage = int(statusFault[11])
+            except:
+                inputOverVoltage = None
+
+            try:
+                outputUnderVoltage = int(statusFault[10])
+            except:
+                outputUnderVoltage = None
+
+            try:
+                outputOverVoltage = int(statusFault[9])
+            except:
+                outputOverVoltage = None
+
+            try:
+                dcdcTrip = int(statusFault[13])
+            except:
+                dcdcTrip = None
+
+        else:
+            continue
+
+        print("InUnderVolt",inputUnderVoltage)
+        print("InOverVolt",inputOverVoltage)
+        print("OutUnderVolt",outputUnderVoltage)
+        print("OutOverVolt",outputOverVoltage)
+        print("DCDCtrip",dcdcTrip)
+
+        logger.info(("InUnderVolt",inputUnderVoltage))
+        logger.info(("InOverVolt",inputOverVoltage))
+        logger.info(("OutUnderVolt",outputUnderVoltage))
+        logger.info(("OutOverVolt",outputOverVoltage))
+        logger.info(("DCDCtrip",dcdcTrip))
+
+        if inputOverVoltage == 1 or inputUnderVoltage == 1 or outputOverVoltage == 1 or outputUnderVoltage == 1 or dcdcTrip == 1:
+            conv_server_ip = ip_conv  # Replace with your server's IP address
+            conv_server_port = 443 
+                
+            conv_client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+            try:
+                conv_client_socket.connect((conv_server_ip, conv_server_port))
+            except Exception as ex:
+                print(ex,'to convertor')
+                continue
+            # print("inunder :",inputUnderVoltage,"inover :",inputOverVoltage,"outunder :",outputUnderVoltage,"outUnder :",outputOverVoltage)
+            logger.info(("inunder :",inputUnderVoltage,"inover :",inputOverVoltage,"outunder :",outputUnderVoltage,"outUnder :",outputOverVoltage))
+            conv_client_socket.send(resetON)
+            print("Convertor Fault")
+            print("Convertor Reset Sent")
+            logger.info("Convertor Fault")
+            logger.info("Convertor Reset Sent")
+
         if batSts == 'IDLE' and batVoltage <=400 and mainConsSts != '3' and preConSts != '3':
 
             bat_server_ip = ip_bat  # Replace with your server's IP address
@@ -603,7 +735,7 @@ while True:
                 print(ex,'to battery')
                 continue
 
-            conv_server_ip = "10.9.220.43"  # Replace with your server's IP address
+            conv_server_ip = ip_conv  # Replace with your server's IP address
             conv_server_port = 443 
                 
             conv_client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -888,7 +1020,7 @@ while True:
                 if count_nd >= 5:
                     print("Dchg off")
                     # -------------------------------------------------DischargeOFF---------------------------------------------------------
-                    conv_server_ip = "10.9.220.43"  # Replace with your server's IP address
+                    conv_server_ip = ip_conv  # Replace with your server's IP address
                     conv_server_port = 443 
                             
                     conv_client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
