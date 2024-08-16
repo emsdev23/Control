@@ -216,11 +216,16 @@ def CurrentSet(crate):
         conv_client_socket.connect((conv_server_ip, conv_server_port))
     except Exception as ex:        
         print(ex,'to convertor')
+        return 'failed'
     conv_client_socket.send(cur_mode)
     print("Current SET")
     time.sleep(1)
-    client_conv = ModbusTcpClient("10.9.242.6", port=502, timeout=3)
-    client_conv.connect()
+    try:
+        client_conv = ModbusTcpClient(conv_server_ip, conv_server_port, timeout=3)
+        client_conv.connect()
+    except Exception as ex:
+        print(ex,"Modbus TCP Error")
+        return 'failed'
     read=client_conv.read_holding_registers(address = 1532)
     current = read.registers[0]
     print(current)
@@ -351,7 +356,7 @@ while True:
                         PreLi.append(str1Res[0][2])
                     except Exception as ex:
                         print(ex)
-                        time.sleep(10)
+                        time.sleep(1)
                         continue
                 else:
                     str1Time = current_date
@@ -371,7 +376,7 @@ while True:
                         PreLi.append(str2Res[0][2])
                     except Exception as ex:
                         print(ex)
-                        time.sleep(10)
+                        time.sleep(1)
                         continue
                 else:
                     str2Time = current_date
@@ -392,7 +397,7 @@ while True:
                         PreLi.append(str3Res[0][2])
                     except Exception as ex:
                         print(ex)
-                        time.sleep(10)
+                        time.sleep(1)
                         continue
                 else:
                     str3Time = current_date
@@ -412,7 +417,7 @@ while True:
                         PreLi.append(str4Res[0][2])
                     except Exception as ex:
                         print(ex)
-                        time.sleep(10)
+                        time.sleep(1)
                         continue
                 else:
                     str4Time = current_date
@@ -432,7 +437,7 @@ while True:
                         PreLi.append(str5Res[0][2])
                     except Exception as ex:
                         print(ex)
-                        time.sleep(10)
+                        time.sleep(1)
                         continue
                 else:
                     str5Time = current_date
@@ -517,7 +522,7 @@ while True:
 
                                 ApiUrl = API_mapping[apiNo]
                             else:
-                                time.sleep(3)
+                                time.sleep(2)
                                 continue
 
                             crate = '0.1'
@@ -604,9 +609,14 @@ while True:
 
                     elif 'DCHG' in dchgLi:
                         print("CHECK DCHG")
-                        client_conv = ModbusTcpClient("10.9.242.6", port=502, timeout=3)
-                        client_conv.connect()
-                        read=client_conv.read_holding_registers(address = 1532)
+                        try:
+                            client_conv = ModbusTcpClient("10.9.242.6", port=502, timeout=3)
+                            client_conv.connect()
+                            read=client_conv.read_holding_registers(address = 1532)
+                        except Exception as ex:
+                            print(ex)
+                            continue
+                        client_conv.close()
                         current = read.registers[0]
                         print(current)
 
@@ -619,7 +629,7 @@ while True:
 
                         print("current:",current)
 
-                        if peakAvg != None and peakAvg <= 4300 and (current >= 100 or current <= 150):
+                        if peakAvg != None and peakAvg <= 4300 and (current == 100 or current == 150):
                             current = 50*count
                             hx = dchgHex(current)
                             crate = "5C6500000009011005FC000102"+hx
@@ -628,12 +638,12 @@ while True:
 
                             if CrateRes == 'Success':
                                 print("Crate set to:",current)
-                                time.sleep(100)
+                                time.sleep(2)
                             else:
-                                time.sleep(5)
+                                time.sleep(2)
                                 continue
                         
-                        elif peakAvg != None and peakAvg >= 4300 and peakAvg <= 4400 and (current >= 50 or current <= 150):
+                        elif peakAvg != None and peakAvg >= 4300 and peakAvg <= 4400 and (current == 50 or current == 150):
                             print(peakAvg,"> 4300")
                             current = 100*count
                             hx = dchgHex(current)
@@ -643,9 +653,9 @@ while True:
 
                             if CrateRes == 'Success':
                                 print("Crate set to:",current)
-                                time.sleep(100)
+                                time.sleep(2)
                             else:
-                                time.sleep(5)
+                                time.sleep(2)
                                 continue
 
                         elif peak != None and peak >= 4400 and (current >= 50 or current <= 100):
@@ -660,7 +670,7 @@ while True:
                                 print("Crate set to:",current)
                                 time.sleep(600)
                             else:
-                                time.sleep(5)
+                                time.sleep(2)
                                 continue
                         
                         if peakAvg != None:
@@ -682,7 +692,8 @@ while True:
                                 resJson = OFFurl.json()
 
                                 if resJson:
-                                    send_mail_off(peak,'DCHG')                
+                                    send_mail_off(peak,'DCHG')
+                                    time.sleep(180)                
                             else:
                                 print("Peak above the limit")
                     # http://localhost:8000/ioetriplestr?strings=str2,str3,str4,CHG
@@ -706,7 +717,7 @@ while True:
                         PreLi.append(str1Res[0][2])
                     except Exception as ex:
                         print(ex)
-                        time.sleep(10)
+                        time.sleep(1)
                         continue
                 else:
                     str1Time = current_date
@@ -726,7 +737,7 @@ while True:
                         PreLi.append(str2Res[0][2])
                     except Exception as ex:
                         print(ex)
-                        time.sleep(10)
+                        time.sleep(1)
                         continue
                 else:
                     str2Time = current_date
@@ -747,7 +758,7 @@ while True:
                         PreLi.append(str3Res[0][2])
                     except Exception as ex:
                         print(ex)
-                        time.sleep(10)
+                        time.sleep(1)
                         continue
                 else:
                     str3Time = current_date
@@ -768,7 +779,7 @@ while True:
                         PreLi.append(str4Res[0][2])
                     except Exception as ex:
                         print(ex)
-                        time.sleep(10)
+                        time.sleep(1)
                         continue
                 else:
                     str4Time = current_date
@@ -788,7 +799,7 @@ while True:
                         PreLi.append(str5Res[0][2])
                     except Exception as ex:
                         print(ex)
-                        time.sleep(10)
+                        time.sleep(1)
                         continue
                 else:
                     str5Time = current_date
@@ -810,13 +821,14 @@ while True:
 
                 if 'DCHG' in dchgLi:
                     try:
-                        client_conv = ModbusTcpClient("10.9.242.6", port=502, timeout=3)
+                        client_conv = ModbusTcpClient(conv_server_ip, conv_server_port, timeout=3)
                         client_conv.connect()
                         read=client_conv.read_holding_registers(address = 1532)
                         current = read.registers[0]
                     except Exception as ex:
                         print(ex)
                         continue
+                    client_conv.close()
                     print(current)
 
                     count = 0
@@ -836,9 +848,9 @@ while True:
                         CrateRes = CurrentSet(crate)
                         if CrateRes == 'Success':
                             print("Crate set to:",current)
-                            time.sleep(100)
+                            time.sleep(2)
                         else:
-                            time.sleep(5)
+                            time.sleep(2)
                             continue
 
 
@@ -850,9 +862,9 @@ while True:
                         CrateRes = CurrentSet(crate)
                         if CrateRes == 'Success':
                             print("Crate set to:",current)
-                            time.sleep(100)
+                            time.sleep(2)
                         else:
-                            time.sleep(5)
+                            time.sleep(2)
                             continue
 
                     if peak != None and peak >= 4400 and (current == 50 or current == 100):
@@ -865,7 +877,7 @@ while True:
                             print("Crate set to:",current)
                             time.sleep(600)
                         else:
-                            time.sleep(5)
+                            time.sleep(2)
                             continue
                     
                     if peakAvg != None:
@@ -888,7 +900,8 @@ while True:
                             resJson = OFFurl.json()
 
                             if resJson:
-                                send_mail_off(peakAvg,'DCHG')                
+                                send_mail_off(peakAvg,'DCHG') 
+                                time.sleep(180)               
                         else:
                             print("Peak above the limit")
             awscur.close()
@@ -947,7 +960,7 @@ while True:
                     PreLi.append(str1Res[0][2])
                 except Exception as ex:
                         print(ex)
-                        time.sleep(10)
+                        time.sleep(1)
                         continue
             else:
                 str1Time = current_date
@@ -967,7 +980,7 @@ while True:
                     PreLi.append(str2Res[0][2])
                 except Exception as ex:
                         print(ex)
-                        time.sleep(10)
+                        time.sleep(1)
                         continue
             else:
                 str2Time = current_date
@@ -987,7 +1000,7 @@ while True:
                     PreLi.append(str3Res[0][2])
                 except Exception as ex:
                         print(ex)
-                        time.sleep(10)
+                        time.sleep(1)
                         continue
             else:
                 str3Time = current_date
@@ -1007,7 +1020,7 @@ while True:
                     PreLi.append(str4Res[0][2])
                 except Exception as ex:
                         print(ex)
-                        time.sleep(10)
+                        time.sleep(1)
                         continue
             else:
                 str4Time = current_date
@@ -1027,12 +1040,16 @@ while True:
                     PreLi.append(str5Res[0][2])
                 except Exception as ex:
                         print(ex)
-                        time.sleep(10)
+                        time.sleep(1)
                         continue
             else:
                 str5Time = current_date
             
-            volt = sum(voltLi)/len(voltLi)
+            if len(voltLi) > 0:
+                volt = sum(voltLi)/len(voltLi)
+            else:
+                continue
+            
             if len(chgLi) > 0 and len(MainLi) > 0:
                 if 'CHG' not in chgLi and 'ON' not in MainLi:
                     str1lag = (curtime - str1Time).total_seconds()
@@ -1068,7 +1085,7 @@ while True:
                             strtime['str5'] = str5Res[0][0]
                     except Exception as ex:
                         print(ex)
-                        time.sleep(30)
+                        time.sleep(3)
                         continue
                     
                     print(strtime)
@@ -1094,7 +1111,7 @@ while True:
 
                         ApiUrl = API_mapping[apiNo]
                     else:
-                        time.sleep(3)
+                        time.sleep(2)
                         continue
 
                     crate = '0.2'
@@ -1109,4 +1126,4 @@ while True:
                         print("Charged!")
 
         emscur.close()
-    time.sleep(10)
+    time.sleep(5)
