@@ -316,13 +316,13 @@ while True:
             
             print('GD:',peakDemand)
 
-            bmscur.execute("SELECT totalApparentPower1 FROM bmsmgmt_olap_prod_v13.hvacSchneider7230Polling where date(polledTime) = curdate() order by recordId desc limit 1;")
+            bmscur.execute("SELECT totalApparentPower2 FROM bmsmgmt_olap_prod_v13.hvacSchneider7230Polling where date(polledTime) = curdate() order by recordId desc limit 1;")
             res = bmscur.fetchall()
             peak = res[0][0]
 
             print('Peak:',peak)
 
-            bmscur.execute("SELECT totalApparentPower1 FROM bmsmgmt_olap_prod_v13.hvacSchneider7230Polling where date(polledTime) = curdate() order by recordId desc limit 40;")
+            bmscur.execute("SELECT totalApparentPower2 FROM bmsmgmt_olap_prod_v13.hvacSchneider7230Polling where date(polledTime) = curdate() order by recordId desc limit 40;")
             avgRes = bmscur.fetchall()
 
             for i in avgRes:
@@ -336,7 +336,8 @@ while True:
 
             print('peakAvg:',peakAvg)
 
-            if peak != None and (peak >= peakDemand or peak > 4200):
+            if peak != None and (peak >= peakDemand):
+                print("Demand Limit reached")
 
                 curtime = datetime.now()
                 current_date = curtime.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -467,6 +468,10 @@ while True:
                         OFFurl = requests.get(ApiUrl)
                         resJson = OFFurl.json()
 
+                        print("Charge off")
+
+                        time.sleep(600)
+
                         if 'DCHG' not in dchgLi and 'ON' not in MainLi and avgVolt > 670:
                             print(dchgLi,MainLi)
 
@@ -525,7 +530,10 @@ while True:
                                 time.sleep(2)
                                 continue
 
-                            crate = '0.1'
+                            if peakDemand > 4400:
+                                crate = '0.3'
+                            else:
+                                crate = '0.1'
 
                             ApiUrl = ApiUrl+f'?strings={strings}&crate={crate}'
                             print(ApiUrl)
@@ -595,7 +603,10 @@ while True:
                             time.sleep(3)
                             continue
 
-                        crate = '0.1'
+                        if peakDemand > 4400:
+                            crate = '0.3'
+                        else:
+                            crate = '0.1'
 
                         ApiUrl = ApiUrl+f'?strings={strings}&crate={crate}'
                         print(ApiUrl)
@@ -908,6 +919,232 @@ while True:
             emscur.close()
             bmscur.close()
 
+    if curntime >= 18 and curntime <= 21:
+        print("18 Discharge")
+        chgLi = []
+        MainLi = []
+        voltLi = []
+        PreLi = []
+        try:
+            emsdb = mysql.connector.connect(
+                    host="121.242.232.211",
+                    user="emsroot",
+                    password="22@teneT",
+                    database='EMS',
+                    port=3306
+                )
+            
+            emscur = emsdb.cursor()
+        except Exception as ex:
+            print(ex)
+            continue
+
+        emscur.execute("select polledTime,onReason,offReason from EMS.ioeOnOff where date(polledTime) = curdate() order by polledTime desc limit 1;")
+        sts = None
+        fchk = emscur.fetchall()
+        if len(fchk) > 0:
+            curntime = int(str(fchk[0][0])[11:13])
+            if curntime >= 18 or curntime <= 21:
+                if fchk[0][2]:
+                    sts = "NO"
+            else:
+                sts = "OK"
+        else:
+            sts = "OK"
+
+        if sts == "OK":
+            emscur.execute("""SELECT batteryVoltage,mainContactorStatus,prechargeContactorStatus,batteryStatus,recordTimestamp 
+                            FROM EMS.ioeSt1BatteryData 
+                            where date(recordTimestamp) = curdate() order by recordId desc limit 1;""")
+            
+            str1Res = emscur.fetchall()
+
+            if len(str1Res) > 0:
+                try:
+                    str1Time = str1Res[0][4]
+                    voltLi.append(str1Res[0][0])
+                    chgLi.append(str1Res[0][3])
+                    MainLi.append(str1Res[0][1])
+                    PreLi.append(str1Res[0][2])
+                except Exception as ex:
+                        print(ex)
+                        time.sleep(1)
+                        continue
+            else:
+                str1Time = current_date
+
+            emscur.execute("""SELECT batteryVoltage,mainContactorStatus,prechargeContactorStatus,batteryStatus,recordTimestamp 
+                            FROM EMS.ioeSt2BatteryData 
+                            where date(recordTimestamp) = curdate() order by recordId desc limit 1;""")
+            
+            str2Res = emscur.fetchall()
+
+            if len(str2Res) > 0:
+                try:
+                    str2Time = str2Res[0][4]
+                    voltLi.append(str2Res[0][0])
+                    chgLi.append(str2Res[0][3])
+                    MainLi.append(str2Res[0][1])
+                    PreLi.append(str2Res[0][2])
+                except Exception as ex:
+                        print(ex)
+                        time.sleep(1)
+                        continue
+            else:
+                str2Time = current_date
+
+            emscur.execute("""SELECT batteryVoltage,mainContactorStatus,prechargeContactorStatus,batteryStatus,recordTimestamp 
+                            FROM EMS.ioeSt3BatteryData 
+                            where date(recordTimestamp) = curdate() order by recordId desc limit 1;""")
+            
+            str3Res = emscur.fetchall()
+
+            if len(str3Res) > 0:
+                try:
+                    str3Time = str3Res[0][4]
+                    voltLi.append(str3Res[0][0])
+                    chgLi.append(str3Res[0][3])
+                    MainLi.append(str3Res[0][1])
+                    PreLi.append(str3Res[0][2])
+                except Exception as ex:
+                        print(ex)
+                        time.sleep(1)
+                        continue
+            else:
+                str3Time = current_date
+
+            emscur.execute("""SELECT batteryVoltage,mainContactorStatus,prechargeContactorStatus,batteryStatus,recordTimestamp 
+                            FROM EMS.ioeSt4BatteryData 
+                            where date(recordTimestamp) = curdate() order by recordId desc limit 1;""")
+            
+            str4Res = emscur.fetchall()
+
+            if len(str4Res) > 0:
+                try:
+                    str4Time = str4Res[0][4]
+                    voltLi.append(str4Res[0][0])
+                    chgLi.append(str4Res[0][3])
+                    MainLi.append(str4Res[0][1])
+                    PreLi.append(str4Res[0][2])
+                except Exception as ex:
+                        print(ex)
+                        time.sleep(1)
+                        continue
+            else:
+                str4Time = current_date
+
+            emscur.execute("""SELECT batteryVoltage,mainContactorStatus,prechargeContactorStatus,batteryStatus,recordTimestamp 
+                            FROM EMS.ioeSt5BatteryData 
+                            where date(recordTimestamp) = curdate() order by recordId desc limit 1;""")
+            
+            str5Res = emscur.fetchall()
+
+            if len(str5Res) > 0:
+                try:
+                    str5Time = str5Res[0][4]
+                    voltLi.append(str5Res[0][0])
+                    chgLi.append(str5Res[0][3])
+                    MainLi.append(str5Res[0][1])
+                    PreLi.append(str5Res[0][2])
+                except Exception as ex:
+                        print(ex)
+                        time.sleep(1)
+                        continue
+            else:
+                str5Time = current_date
+            
+            if len(voltLi) > 0:
+                volt = sum(voltLi)/len(voltLi)
+            else:
+                continue
+
+            print(dchgLi)
+            print(MainLi)
+            print(voltLi)
+
+            volt = 0
+            count = 0
+
+            for i in voltLi:
+                if i != None and i > 0:
+                    volt += i
+                    count += 1
+
+            if volt != 0:
+                avgVolt = volt/count
+            
+            print('Average Voltage :', avgVolt)
+
+            if len(dchgLi) > 0 and len(MainLi) > 0:
+                
+                if 'DCHG' not in dchgLi and 'ON' not in MainLi and avgVolt > 680:
+                    print(dchgLi,MainLi)
+
+                    str1lag = (curtime - str1Time).total_seconds()
+                    str2lag = (curtime - str2Time).total_seconds()
+                    str3lag = (curtime - str3Time).total_seconds()
+                    str4lag = (curtime - str4Time).total_seconds()
+                    str5lag = (curtime - str5Time).total_seconds()
+
+                    def GetCloseVoltage(dictionary):
+                        close_pairs = []
+                        keys = list(dictionary.keys())
+                        for i in range(len(keys)):
+                            for j in range(i + 1, len(keys)):
+                                key1 = keys[i]
+                                key2 = keys[j]
+                                diff = abs(dictionary[key1] - dictionary[key2])
+                                if diff <= 10:
+                                    close_pairs.append((key1, key2))
+                        return close_pairs
+
+                    strtime = {}
+
+                    if str1lag <= 500:
+                        strtime['str1'] = str1Res[0][0]
+                    if str2lag <= 500:
+                        strtime['str2'] = str2Res[0][0]
+                    if str3lag <= 500:
+                        strtime['str3'] = str3Res[0][0]
+                    if str4lag <= 500:
+                        strtime['str4'] = str4Res[0][0]
+                    if str5lag <= 500:
+                        strtime['str5'] = str5Res[0][0]
+                    
+                    print(strtime)
+
+                    finalStr = GetCloseVoltage(strtime)
+
+                    all_strings = [item for sublist in finalStr for item in sublist]
+
+                    unique_strings = set(all_strings)
+
+                    strings = ','.join(t for t in unique_strings)
+
+                    strings = strings+',DCHG'
+
+                    print(strings)
+
+                    li = strings.split(',')
+
+                    if len(li) >= 2:
+                        apiNo = str(len(li)-1)
+
+                        ApiUrl = API_mapping[apiNo]
+                    else:
+                        time.sleep(3)
+                        continue
+
+                    crate = '0.1'
+
+                    ApiUrl = ApiUrl+f'?strings={strings}&crate={crate}'
+                    print(ApiUrl)
+
+                    ONurl = requests.get(ApiUrl)
+
+                    resJson = ONurl.json()
+       
+    
     if curntime >= 22 or curntime <= 3:
         chgLi = []
         MainLi = []
