@@ -52,67 +52,71 @@ smtp_password = 'eebpnvgyfzzdtitb'
 sender = 'emsteamrp@gmail.com'
 recipient = ['faheera@respark.iitm.ac.in','iswarya@tenet.res.in','vetrivel@tenet.res.in','arun.kumar@tenet.res.in','ritvika@respark.iitm.ac.in']
 
-def send_mail_off(peak,process):
-    curtime = datetime.now()
-    curtime = str(curtime)[0:16]
 
-    message = MIMEMultipart('alternative')
-    message['Subject'] = f'EMS ALERT - IOE Battery {process} OFF'
-    message['From'] = sender
-    message['To'] = ', '.join(recipient)
+def GetDischargeTime(peakTime):
+    strTimes = []
 
-    html_content = html_head + f"""
-                        <body style="background-color:white;">
-                        <div class="container">
-                            <div class="image">
-                                <img src="https://media.licdn.com/dms/image/C560BAQFAVLoL6j71Kg/company-logo_200_200/0/1657630844148?e=1692230400&v=beta&t=yOQNePjpzF0yycZuFep1AcyaXcMmfmt9Lb-5P8xa6L4" height="100px" width="100px">
-                            </div>
-                            <div class="text">
-                                <h3>EMS Alert</h3>
-                            </div>
-                        </div>
-                        <hr>
-                        <br>
-                        <center>
-                            <table>
-                                <tr>
-                                <td><b>Alert<b></td>
-                                <td>Peak Limt {peak}</td>
-                                </tr>
-                                <tr>
-                                    <td><b>Severity<b></td>
-                                    <td>Medium</td>
-                                </tr>
-                                <tr>
-                                    <td><b>Time<b></td>
-                                    <td>{curtime}</td>
-                                </tr>
-                                <tr>
-                                    <td><b>System<b></td>
-                                    <td>IOE Battery</td>
-                                </tr>
-                            </table>
-                            <br>
-                            <hr>
-                            <p>EMS team</p></center>
-                            </body>"""
-    html_part = MIMEText(html_content, 'html')
-    message.attach(html_part)
+    emsdb = mysql.connector.connect(
+            host="121.242.232.211",
+            user="emsroot",
+            password="22@teneT",
+            database='EMS',
+            port=3306
+        )
+    
+    emscur = emsdb.cursor()
 
-    with smtplib.SMTP(smtp_server, smtp_port) as server:
-        server.starttls()
-        server.login(smtp_username, smtp_password)
-        server.sendmail(sender, recipient, message.as_string())
+    for i in range(1,6):
+        emscur.execute(f"SELECT recordTimestamp FROM EMS.ioeSt{i}BatteryData where recordTimestamp >= '{peakTime}' and batteryStatus = 'DCHG';")
 
-def send_mail(peak,strings,crate):
-    curtime = datetime.now()
-    curtime = str(curtime)[0:16]
+        stres = emscur.fetchall()
+
+        if len(stres) > 0:
+            strTimes.append(stres[0][0])
+            break
+        else:
+            continue
+    
+    emscur.close()
+    emsdb.close()
+    
+    return strTimes
+
+
+def send_mail(peak,strings,crate,peakTime,serverTime):
 
     message = MIMEMultipart('alternative')
     message['Subject'] = f'EMS ALERT - IOE Battery {strings[-1]} ON'
     message['From'] = sender
     message['To'] = ', '.join(recipient)
 
+    emsdb = mysql.connector.connect(
+            host="121.242.232.211",
+            user="emsroot",
+            password="22@teneT",
+            database='EMS',
+            port=3306
+        )
+    
+    emscur = emsdb.cursor()
+
+    strTimes = GetDischargeTime(peakTime)
+    
+    if len(strTimes) > 0: 
+        dischargeON = strTimes[0]
+    else:
+        time.sleep(60)
+        send_mail(peak,strings,crate,peakTime,serverTime)
+        
+    sql = "INSERT INTO EMS.ioePeakDchg(serverTime,peakTime,serverTime,peakDemand,dischargeON) VALUES(%s,%s,%s,%s,%s)"
+    val = (serverTime,peakTime,serverTime,peak,dischargeON)
+    emscur.execute(sql,val)
+    emsdb.commit()
+    print("Peak IOE DCHG ON value Inserted")
+
+    emscur.close()
+    emsdb.close()
+    
     html_content = html_head + f"""
                         <body style="background-color:white;">
                         <div class="container">
@@ -163,6 +167,81 @@ def send_mail(peak,strings,crate):
         server.starttls()
         server.login(smtp_username, smtp_password)
         server.sendmail(sender, recipient, message.as_string())
+
+
+def send_mail_off(peak,process):
+    curtime = datetime.now()
+    curtime = str(curtime)[0:16]
+
+    message = MIMEMultipart('alternative')
+    message['Subject'] = f'EMS ALERT - IOE Battery {process} OFF'
+    message['From'] = sender
+    message['To'] = ', '.join(recipient)
+
+    emsdb = mysql.connector.connect(
+            host="121.242.232.211",
+            user="emsroot",
+            password="22@teneT",
+            database='EMS',
+            port=3306
+        )
+    
+    emscur = emsdb.cursor()
+
+    emscur.execute("select recordId from EMS.ioePeakDchg where date(dischargeON) = curdate() order by recordId desc limit 1")
+
+    res = emscur.fetchall()
+
+    recId = res[0][0]
+
+    sql = "UPDATE EMS.ioePeakDchg SET dischargeOFF = %s where recordId = %s"
+    val = (curtime,recId)    
+
+    emscur.close()
+
+    html_content = html_head + f"""
+                        <body style="background-color:white;">
+                        <div class="container">
+                            <div class="image">
+                                <img src="https://media.licdn.com/dms/image/C560BAQFAVLoL6j71Kg/company-logo_200_200/0/1657630844148?e=1692230400&v=beta&t=yOQNePjpzF0yycZuFep1AcyaXcMmfmt9Lb-5P8xa6L4" height="100px" width="100px">
+                            </div>
+                            <div class="text">
+                                <h3>EMS Alert</h3>
+                            </div>
+                        </div>
+                        <hr>
+                        <br>
+                        <center>
+                            <table>
+                                <tr>
+                                <td><b>Alert<b></td>
+                                <td>Peak Limt {peak}</td>
+                                </tr>
+                                <tr>
+                                    <td><b>Severity<b></td>
+                                    <td>Medium</td>
+                                </tr>
+                                <tr>
+                                    <td><b>Time<b></td>
+                                    <td>{curtime}</td>
+                                </tr>
+                                <tr>
+                                    <td><b>System<b></td>
+                                    <td>IOE Battery</td>
+                                </tr>
+                            </table>
+                            <br>
+                            <hr>
+                            <p>EMS team</p></center>
+                            </body>"""
+    html_part = MIMEText(html_content, 'html')
+    message.attach(html_part)
+
+    with smtplib.SMTP(smtp_server, smtp_port) as server:
+        server.starttls()
+        server.login(smtp_username, smtp_password)
+        server.sendmail(sender, recipient, message.as_string())
+
 
 host = '121.242.232.211'
 
@@ -246,7 +325,7 @@ while True:
 
     print(curdate)
 
-    if curntime >= 9 and curntime <= 18:
+    if curntime >= 19 and curntime < 18:
         dchgLi = []
         chgLi = []
         MainLi = []
@@ -285,19 +364,21 @@ while True:
             print(ex)
             continue
 
-        emscur.execute("select polledTime,onReason,offReason from EMS.ioeOnOff where date(polledTime) = curdate() order by polledTime desc limit 1;")
+        sqldate = str(datetime.now())[0:11]+"09:00:00"
+
+        emscur.execute(f"select polledTime,onReason,offReason from EMS.ioeOnOff where date(polledTime) >= '{sqldate}' order by polledTime desc limit 1;")
         sts = None
         fchk = emscur.fetchall()
         if len(fchk) > 0:
             curntime = int(str(fchk[0][0])[11:13])
-            if curntime >= 9 and curntime <= 18:
+            if curntime >= 9 and curntime < 18:
                 if fchk[0][2]:
                     sts = "NO"
             else:
                 sts = "OK"
         else:
             sts = "OK"
-
+        print(sts)
         if sts == "OK":
             awscur.execute("select polledTime,maxAvgPeak,dischargeStatus from EMS.peakShavingLogic where date(polledTime) = curdate() order by polledTime desc limit 1")
 
@@ -310,19 +391,20 @@ while True:
             print(peakDemand)
 
             if peakDemand != None:
-                peakDemand = peakDemand - ((peakDemand*5)/100)
+                peakDemand = peakDemand - ((peakDemand*2)/100)
                 if peakDemand < 4200:
                     peakDemand = 4200
             
             print('GD:',peakDemand)
 
-            bmscur.execute("SELECT totalApparentPower2 FROM bmsmgmt_olap_prod_v13.hvacSchneider7230Polling where date(polledTime) = curdate() order by recordId desc limit 1;")
+            bmscur.execute("SELECT totalApparentPower2,polledTime FROM bmsmgmt_olap_prod_v13.hvacSchneider7230Polling where date(polledTime) = curdate() order by recordId desc limit 1;")
             res = bmscur.fetchall()
             peak = res[0][0]
+            peakTime = res [0][1]
 
             print('Peak:',peak)
 
-            bmscur.execute("SELECT totalApparentPower2 FROM bmsmgmt_olap_prod_v13.hvacSchneider7230Polling where date(polledTime) = curdate() order by recordId desc limit 40;")
+            bmscur.execute("SELECT totalApparentPower2,polledTime FROM bmsmgmt_olap_prod_v13.hvacSchneider7230Polling where date(polledTime) = curdate() order by recordId desc limit 40;")
             avgRes = bmscur.fetchall()
 
             for i in avgRes:
@@ -343,45 +425,50 @@ while True:
                 current_date = curtime.replace(hour=0, minute=0, second=0, microsecond=0)
 
                 emscur.execute("""SELECT batteryVoltage,mainContactorStatus,prechargeContactorStatus,batteryStatus,recordTimestamp 
-                                FROM EMS.ioeSt1BatteryData 
-                                where date(recordTimestamp) = curdate() order by recordId desc limit 1;""")
-                
+                            FROM EMS.ioeSt1BatteryData 
+                            where date(recordTimestamp) = curdate() order by recordId desc limit 1;""")
+            
                 str1Res = emscur.fetchall()
 
                 if len(str1Res) > 0:
                     try:
-                        str1Time = str1Res[0][4]
-                        voltLi.append(str1Res[0][0])
-                        dchgLi.append(str1Res[0][3])
-                        MainLi.append(str1Res[0][1])
-                        PreLi.append(str1Res[0][2])
+                        if str1Res[0][1] != 'FAULT':
+                            str1Time = str1Res[0][4]
+                            voltLi.append(str1Res[0][0])
+                            dchgLi.append(str1Res[0][3])
+                            MainLi.append(str1Res[0][1])
+                            PreLi.append(str1Res[0][2])
+                        else:
+                            str1Time = current_date
                     except Exception as ex:
-                        print(ex)
-                        time.sleep(1)
-                        continue
+                            print(ex)
+                            time.sleep(1)
+                            continue
                 else:
                     str1Time = current_date
 
                 emscur.execute("""SELECT batteryVoltage,mainContactorStatus,prechargeContactorStatus,batteryStatus,recordTimestamp 
-                                FROM EMS.ioeSt2BatteryData 
-                                where date(recordTimestamp) = curdate() order by recordId desc limit 1;""")
-                
+                            FROM EMS.ioeSt2BatteryData 
+                            where date(recordTimestamp) = curdate() order by recordId desc limit 1;""")
+            
                 str2Res = emscur.fetchall()
 
                 if len(str2Res) > 0:
                     try:
-                        voltLi.append(str2Res[0][0])
-                        str2Time = str2Res[0][4]
-                        dchgLi.append(str2Res[0][3])
-                        MainLi.append(str2Res[0][1])
-                        PreLi.append(str2Res[0][2])
+                        if str2Res[0][1] != 'FAULT':
+                            str2Time = str2Res[0][4]
+                            voltLi.append(str2Res[0][0])
+                            dchgLi.append(str2Res[0][3])
+                            MainLi.append(str2Res[0][1])
+                            PreLi.append(str2Res[0][2])
+                        else:
+                            str2Time = current_date
                     except Exception as ex:
-                        print(ex)
-                        time.sleep(1)
-                        continue
+                            print(ex)
+                            time.sleep(1)
+                            continue
                 else:
                     str2Time = current_date
-                
 
                 emscur.execute("""SELECT batteryVoltage,mainContactorStatus,prechargeContactorStatus,batteryStatus,recordTimestamp 
                                 FROM EMS.ioeSt3BatteryData 
@@ -391,18 +478,21 @@ while True:
 
                 if len(str3Res) > 0:
                     try:
-                        voltLi.append(str3Res[0][0])
-                        str3Time = str3Res[0][4]
-                        dchgLi.append(str3Res[0][3])
-                        MainLi.append(str3Res[0][1])
-                        PreLi.append(str3Res[0][2])
+                        if str3Res[0][1] != 'FAULT':
+                            str3Time = str3Res[0][4]
+                            voltLi.append(str3Res[0][0])
+                            dchgLi.append(str3Res[0][3])
+                            MainLi.append(str3Res[0][1])
+                            PreLi.append(str3Res[0][2])
+                        else:
+                            str3Time = current_date
                     except Exception as ex:
-                        print(ex)
-                        time.sleep(1)
-                        continue
+                            print(ex)
+                            time.sleep(1)
+                            continue
                 else:
                     str3Time = current_date
-                
+
                 emscur.execute("""SELECT batteryVoltage,mainContactorStatus,prechargeContactorStatus,batteryStatus,recordTimestamp 
                                 FROM EMS.ioeSt4BatteryData 
                                 where date(recordTimestamp) = curdate() order by recordId desc limit 1;""")
@@ -411,18 +501,21 @@ while True:
 
                 if len(str4Res) > 0:
                     try:
-                        voltLi.append(str4Res[0][0])
-                        str4Time = str4Res[0][4]
-                        dchgLi.append(str4Res[0][3])
-                        MainLi.append(str4Res[0][1])
-                        PreLi.append(str4Res[0][2])
+                        if str4Res[0][1] != 'FAULT':
+                            str4Time = str4Res[0][4]
+                            voltLi.append(str4Res[0][0])
+                            dchgLi.append(str4Res[0][3])
+                            MainLi.append(str4Res[0][1])
+                            PreLi.append(str4Res[0][2])
+                        else:
+                            str4Time = current_date
                     except Exception as ex:
-                        print(ex)
-                        time.sleep(1)
-                        continue
+                            print(ex)
+                            time.sleep(1)
+                            continue
                 else:
                     str4Time = current_date
-                
+
                 emscur.execute("""SELECT batteryVoltage,mainContactorStatus,prechargeContactorStatus,batteryStatus,recordTimestamp 
                                 FROM EMS.ioeSt5BatteryData 
                                 where date(recordTimestamp) = curdate() order by recordId desc limit 1;""")
@@ -431,21 +524,24 @@ while True:
 
                 if len(str5Res) > 0:
                     try:
-                        voltLi.append(str5Res[0][0])
-                        str5Time = str5Res[0][4]
-                        dchgLi.append(str5Res[0][3])
-                        MainLi.append(str5Res[0][1])
-                        PreLi.append(str5Res[0][2])
+                        if str5Res[0][1] != 'FAULT':
+                            str5Time = str5Res[0][4]
+                            voltLi.append(str5Res[0][0])
+                            dchgLi.append(str5Res[0][3])
+                            MainLi.append(str5Res[0][1])
+                            PreLi.append(str5Res[0][2])
+                        else:
+                            str5Time = current_date
                     except Exception as ex:
-                        print(ex)
-                        time.sleep(1)
-                        continue
+                            print(ex)
+                            time.sleep(1)
+                            continue
                 else:
                     str5Time = current_date
 
-                print(dchgLi)
-                print(MainLi)
-                print(voltLi)
+                print('Status',dchgLi)
+                print('Main Sts',MainLi)
+                print('Voltages',voltLi)
 
                 volt = 0
                 count = 0
@@ -459,6 +555,9 @@ while True:
                     avgVolt = volt/count
                 
                 print('Average Voltage :', avgVolt)
+
+                curtime = datetime.now()
+                serverTime = str(curtime)[0:16]
 
                 if len(dchgLi) > 0 and len(MainLi) > 0:
                    
@@ -616,7 +715,7 @@ while True:
                         resJson = ONurl.json()
 
                         if resJson:
-                            send_mail(peak,li,crate)
+                            send_mail(peak,li,crate,peakTime,serverTime)
 
                     elif 'DCHG' in dchgLi:
                         print("CHECK DCHG")
@@ -639,74 +738,74 @@ while True:
 
 
                         print("current:",current)
+                        if count >= 3:
+                            if peakAvg != None and peakAvg <= 4300 and (current == 100 or current == 150):
+                                current = 60*5
+                                hx = dchgHex(current)
+                                crate = "5C6500000009011005FC000102"+hx
 
-                        if peakAvg != None and peakAvg <= 4300 and (current == 100 or current == 150):
-                            current = 50*count
-                            hx = dchgHex(current)
-                            crate = "5C6500000009011005FC000102"+hx
+                                CrateRes = CurrentSet(crate)
 
-                            CrateRes = CurrentSet(crate)
+                                if CrateRes == 'Success':
+                                    print("Crate set to:",current)
+                                    time.sleep(2)
+                                else:
+                                    time.sleep(2)
+                                    continue
+                            
+                            elif peakAvg != None and peakAvg >= 4300 and peakAvg <= 4400 and (current == 50 or current == 150):
+                                print(peakAvg,"> 4300")
+                                current = 100*5
+                                hx = dchgHex(current)
+                                crate = "5C6500000009011005FC000102"+hx
 
-                            if CrateRes == 'Success':
-                                print("Crate set to:",current)
-                                time.sleep(2)
-                            else:
-                                time.sleep(2)
-                                continue
+                                CrateRes = CurrentSet(crate)
+
+                                if CrateRes == 'Success':
+                                    print("Crate set to:",current)
+                                    time.sleep(2)
+                                else:
+                                    time.sleep(2)
+                                    continue
+
+                            elif peak != None and peak >= 4400 and (current >= 50 or current <= 100):
+                                print(peak, ">4400")
+                                current = 150*5
+                                hx = dchgHex(current)
+                                crate = "5C6500000009011005FC000102"+hx
+
+                                CrateRes = CurrentSet(crate)
+
+                                if CrateRes == 'Success':
+                                    print("Crate set to:",current)
+                                    time.sleep(600)
+                                else:
+                                    time.sleep(2)
+                                    continue
                         
-                        elif peakAvg != None and peakAvg >= 4300 and peakAvg <= 4400 and (current == 50 or current == 150):
-                            print(peakAvg,"> 4300")
-                            current = 100*count
-                            hx = dchgHex(current)
-                            crate = "5C6500000009011005FC000102"+hx
+                            if peakAvg != None:
+                                bmscur.execute("SELECT totalApparentPower1 FROM bmsmgmt_olap_prod_v13.hvacSchneider7230Polling where date(polledTime) = curdate() order by recordId desc limit 20;")
 
-                            CrateRes = CurrentSet(crate)
+                                peakChkRes = bmscur.fetchall()
 
-                            if CrateRes == 'Success':
-                                print("Crate set to:",current)
-                                time.sleep(2)
-                            else:
-                                time.sleep(2)
-                                continue
+                                count = 0
 
-                        elif peak != None and peak >= 4400 and (current >= 50 or current <= 100):
-                            print(peak, ">4400")
-                            current = 150*count
-                            hx = dchgHex(current)
-                            crate = "5C6500000009011005FC000102"+hx
+                                for i in peakChkRes:
+                                    if i[0] != None:
+                                        if peakDemand - i[0] >= 150:
+                                            count += 1
+                                print(count)
+                                if count >= 20:
+                                    ApiUrl = f"http://{host}:8009/ioeprocessoff"    
+                                    OFFurl = requests.get(ApiUrl)
 
-                            CrateRes = CurrentSet(crate)
+                                    resJson = OFFurl.json()
 
-                            if CrateRes == 'Success':
-                                print("Crate set to:",current)
-                                time.sleep(600)
-                            else:
-                                time.sleep(2)
-                                continue
-                        
-                        if peakAvg != None:
-                            bmscur.execute("SELECT totalApparentPower1 FROM bmsmgmt_olap_prod_v13.hvacSchneider7230Polling where date(polledTime) = curdate() order by recordId desc limit 20;")
-
-                            peakChkRes = bmscur.fetchall()
-
-                            count = 0
-
-                            for i in peakChkRes:
-                                if i[0] != None:
-                                    if peakDemand - i[0] >= 150:
-                                        count += 1
-                            print(count)
-                            if count >= 20:
-                                ApiUrl = f"http://{host}:8009/ioeprocessoff"    
-                                OFFurl = requests.get(ApiUrl)
-
-                                resJson = OFFurl.json()
-
-                                if resJson:
-                                    send_mail_off(peak,'DCHG')
-                                    time.sleep(180)                
-                            else:
-                                print("Peak above the limit")
+                                    if resJson:
+                                        send_mail_off(peak,'DCHG')
+                                        time.sleep(180)                
+                                else:
+                                    print("Peak above the limit")
                     # http://localhost:8000/ioetriplestr?strings=str2,str3,str4,CHG
             else:
                 curtime = datetime.now()
@@ -714,45 +813,50 @@ while True:
                 current_date = curtime.replace(hour=0, minute=0, second=0, microsecond=0)
 
                 emscur.execute("""SELECT batteryVoltage,mainContactorStatus,prechargeContactorStatus,batteryStatus,recordTimestamp 
-                                FROM EMS.ioeSt1BatteryData 
-                                where date(recordTimestamp) = curdate() order by recordId desc limit 1;""")
-                
+                            FROM EMS.ioeSt1BatteryData 
+                            where date(recordTimestamp) = curdate() order by recordId desc limit 1;""")
+            
                 str1Res = emscur.fetchall()
 
                 if len(str1Res) > 0:
                     try:
-                        str1Time = str1Res[0][4]
-                        voltLi.append(str1Res[0][0])
-                        dchgLi.append(str1Res[0][3])
-                        MainLi.append(str1Res[0][1])
-                        PreLi.append(str1Res[0][2])
+                        if str1Res[0][1] != 'FAULT':
+                            str1Time = str1Res[0][4]
+                            voltLi.append(str1Res[0][0])
+                            dchgLi.append(str1Res[0][3])
+                            MainLi.append(str1Res[0][1])
+                            PreLi.append(str1Res[0][2])
+                        else:
+                            str1Time = current_date
                     except Exception as ex:
-                        print(ex)
-                        time.sleep(1)
-                        continue
+                            print(ex)
+                            time.sleep(1)
+                            continue
                 else:
                     str1Time = current_date
 
                 emscur.execute("""SELECT batteryVoltage,mainContactorStatus,prechargeContactorStatus,batteryStatus,recordTimestamp 
-                                FROM EMS.ioeSt2BatteryData 
-                                where date(recordTimestamp) = curdate() order by recordId desc limit 1;""")
-                
+                            FROM EMS.ioeSt2BatteryData 
+                            where date(recordTimestamp) = curdate() order by recordId desc limit 1;""")
+            
                 str2Res = emscur.fetchall()
 
                 if len(str2Res) > 0:
                     try:
-                        str2Time = str2Res[0][4]
-                        voltLi.append(str2Res[0][0])
-                        dchgLi.append(str2Res[0][3])
-                        MainLi.append(str2Res[0][1])
-                        PreLi.append(str2Res[0][2])
+                        if str2Res[0][1] != 'FAULT':
+                            str2Time = str2Res[0][4]
+                            voltLi.append(str2Res[0][0])
+                            dchgLi.append(str2Res[0][3])
+                            MainLi.append(str2Res[0][1])
+                            PreLi.append(str2Res[0][2])
+                        else:
+                            str2Time = current_date
                     except Exception as ex:
-                        print(ex)
-                        time.sleep(1)
-                        continue
+                            print(ex)
+                            time.sleep(1)
+                            continue
                 else:
                     str2Time = current_date
-                
 
                 emscur.execute("""SELECT batteryVoltage,mainContactorStatus,prechargeContactorStatus,batteryStatus,recordTimestamp 
                                 FROM EMS.ioeSt3BatteryData 
@@ -762,18 +866,20 @@ while True:
 
                 if len(str3Res) > 0:
                     try:
-                        str3Time = str3Res[0][4]
-                        voltLi.append(str3Res[0][0])
-                        dchgLi.append(str3Res[0][3])
-                        MainLi.append(str3Res[0][1])
-                        PreLi.append(str3Res[0][2])
+                        if str3Res[0][1] != 'FAULT':
+                            str3Time = str3Res[0][4]
+                            voltLi.append(str3Res[0][0])
+                            dchgLi.append(str3Res[0][3])
+                            MainLi.append(str3Res[0][1])
+                            PreLi.append(str3Res[0][2])
+                        else:
+                            str3Time = current_date
                     except Exception as ex:
-                        print(ex)
-                        time.sleep(1)
-                        continue
+                            print(ex)
+                            time.sleep(1)
+                            continue
                 else:
                     str3Time = current_date
-                
 
                 emscur.execute("""SELECT batteryVoltage,mainContactorStatus,prechargeContactorStatus,batteryStatus,recordTimestamp 
                                 FROM EMS.ioeSt4BatteryData 
@@ -783,18 +889,21 @@ while True:
 
                 if len(str4Res) > 0:
                     try:
-                        str4Time = str4Res[0][4]
-                        voltLi.append(str4Res[0][0])
-                        dchgLi.append(str4Res[0][3])
-                        MainLi.append(str4Res[0][1])
-                        PreLi.append(str4Res[0][2])
+                        if str4Res[0][1] != 'FAULT':
+                            str4Time = str4Res[0][4]
+                            voltLi.append(str4Res[0][0])
+                            dchgLi.append(str4Res[0][3])
+                            MainLi.append(str4Res[0][1])
+                            PreLi.append(str4Res[0][2])
+                        else:
+                            str4Time = current_date
                     except Exception as ex:
-                        print(ex)
-                        time.sleep(1)
-                        continue
+                            print(ex)
+                            time.sleep(1)
+                            continue
                 else:
                     str4Time = current_date
-                
+
                 emscur.execute("""SELECT batteryVoltage,mainContactorStatus,prechargeContactorStatus,batteryStatus,recordTimestamp 
                                 FROM EMS.ioeSt5BatteryData 
                                 where date(recordTimestamp) = curdate() order by recordId desc limit 1;""")
@@ -803,15 +912,18 @@ while True:
 
                 if len(str5Res) > 0:
                     try:
-                        str5Time = str5Res[0][4]
-                        voltLi.append(str5Res[0][0])
-                        dchgLi.append(str5Res[0][3])
-                        MainLi.append(str5Res[0][1])
-                        PreLi.append(str5Res[0][2])
+                        if str5Res[0][1] != 'FAULT':
+                            str5Time = str5Res[0][4]
+                            voltLi.append(str5Res[0][0])
+                            dchgLi.append(str5Res[0][3])
+                            MainLi.append(str5Res[0][1])
+                            PreLi.append(str5Res[0][2])
+                        else:
+                            str5Time = current_date
                     except Exception as ex:
-                        print(ex)
-                        time.sleep(1)
-                        continue
+                            print(ex)
+                            time.sleep(1)
+                            continue
                 else:
                     str5Time = current_date
 
@@ -921,7 +1033,7 @@ while True:
 
     if curntime >= 18 and curntime <= 21:
         print("18 Discharge")
-        chgLi = []
+        dchgLi = []
         MainLi = []
         voltLi = []
         PreLi = []
@@ -938,8 +1050,10 @@ while True:
         except Exception as ex:
             print(ex)
             continue
-
-        emscur.execute("select polledTime,onReason,offReason from EMS.ioeOnOff where date(polledTime) = curdate() order by polledTime desc limit 1;")
+        curtime = datetime.now()
+        sqldate = str(datetime.now())[0:11]+"18:00:00"
+        
+        emscur.execute(f"select polledTime,onReason,offReason from EMS.ioeOnOff where date(polledTime) >= '{sqldate}' order by polledTime desc limit 1;")
         sts = None
         fchk = emscur.fetchall()
         if len(fchk) > 0:
@@ -951,7 +1065,8 @@ while True:
                 sts = "OK"
         else:
             sts = "OK"
-
+        print(sts)
+        
         if sts == "OK":
             emscur.execute("""SELECT batteryVoltage,mainContactorStatus,prechargeContactorStatus,batteryStatus,recordTimestamp 
                             FROM EMS.ioeSt1BatteryData 
@@ -961,11 +1076,14 @@ while True:
 
             if len(str1Res) > 0:
                 try:
-                    str1Time = str1Res[0][4]
-                    voltLi.append(str1Res[0][0])
-                    chgLi.append(str1Res[0][3])
-                    MainLi.append(str1Res[0][1])
-                    PreLi.append(str1Res[0][2])
+                    if str1Res[0][1] != 'FAULT':
+                        str1Time = str1Res[0][4]
+                        voltLi.append(str1Res[0][0])
+                        dchgLi.append(str1Res[0][3])
+                        MainLi.append(str1Res[0][1])
+                        PreLi.append(str1Res[0][2])
+                    else:
+                        str1Time = current_date
                 except Exception as ex:
                         print(ex)
                         time.sleep(1)
@@ -981,11 +1099,14 @@ while True:
 
             if len(str2Res) > 0:
                 try:
-                    str2Time = str2Res[0][4]
-                    voltLi.append(str2Res[0][0])
-                    chgLi.append(str2Res[0][3])
-                    MainLi.append(str2Res[0][1])
-                    PreLi.append(str2Res[0][2])
+                    if str2Res[0][1] != 'FAULT':
+                        str2Time = str2Res[0][4]
+                        voltLi.append(str2Res[0][0])
+                        dchgLi.append(str2Res[0][3])
+                        MainLi.append(str2Res[0][1])
+                        PreLi.append(str2Res[0][2])
+                    else:
+                        str2Time = current_date
                 except Exception as ex:
                         print(ex)
                         time.sleep(1)
@@ -1001,11 +1122,14 @@ while True:
 
             if len(str3Res) > 0:
                 try:
-                    str3Time = str3Res[0][4]
-                    voltLi.append(str3Res[0][0])
-                    chgLi.append(str3Res[0][3])
-                    MainLi.append(str3Res[0][1])
-                    PreLi.append(str3Res[0][2])
+                    if str3Res[0][1] != 'FAULT':
+                        str3Time = str3Res[0][4]
+                        voltLi.append(str3Res[0][0])
+                        dchgLi.append(str3Res[0][3])
+                        MainLi.append(str3Res[0][1])
+                        PreLi.append(str3Res[0][2])
+                    else:
+                        str3Time = current_date
                 except Exception as ex:
                         print(ex)
                         time.sleep(1)
@@ -1021,11 +1145,14 @@ while True:
 
             if len(str4Res) > 0:
                 try:
-                    str4Time = str4Res[0][4]
-                    voltLi.append(str4Res[0][0])
-                    chgLi.append(str4Res[0][3])
-                    MainLi.append(str4Res[0][1])
-                    PreLi.append(str4Res[0][2])
+                    if str4Res[0][1] != 'FAULT':
+                        str4Time = str4Res[0][4]
+                        voltLi.append(str4Res[0][0])
+                        dchgLi.append(str4Res[0][3])
+                        MainLi.append(str4Res[0][1])
+                        PreLi.append(str4Res[0][2])
+                    else:
+                        str4Time = current_date
                 except Exception as ex:
                         print(ex)
                         time.sleep(1)
@@ -1041,11 +1168,14 @@ while True:
 
             if len(str5Res) > 0:
                 try:
-                    str5Time = str5Res[0][4]
-                    voltLi.append(str5Res[0][0])
-                    chgLi.append(str5Res[0][3])
-                    MainLi.append(str5Res[0][1])
-                    PreLi.append(str5Res[0][2])
+                    if str5Res[0][1] != 'FAULT':
+                        str5Time = str5Res[0][4]
+                        voltLi.append(str5Res[0][0])
+                        dchgLi.append(str5Res[0][3])
+                        MainLi.append(str5Res[0][1])
+                        PreLi.append(str5Res[0][2])
+                    else:
+                        str5Time = current_date
                 except Exception as ex:
                         print(ex)
                         time.sleep(1)
@@ -1145,7 +1275,7 @@ while True:
                     resJson = ONurl.json()
        
     
-    if curntime >= 22 or curntime <= 3:
+    if curntime >= 9 or curntime <= 3:
         chgLi = []
         MainLi = []
         voltLi = []
@@ -1168,7 +1298,9 @@ while True:
 
         current_date = curtime.replace(hour=0, minute=0, second=0, microsecond=0)
 
-        emscur.execute("select polledTime,onReason,offReason from EMS.ioeOnOff where date(polledTime) = curdate() order by polledTime desc limit 1;")
+        sqldate = str(datetime.now())[0:11]+"09:00:00"
+
+        emscur.execute(f"select polledTime,onReason,offReason from EMS.ioeOnOff where date(polledTime) >= '{sqldate}' order by polledTime desc limit 1;")
         sts = None
         fchk = emscur.fetchall()
         if len(fchk) > 0:
@@ -1190,11 +1322,14 @@ while True:
 
             if len(str1Res) > 0:
                 try:
-                    str1Time = str1Res[0][4]
-                    voltLi.append(str1Res[0][0])
-                    chgLi.append(str1Res[0][3])
-                    MainLi.append(str1Res[0][1])
-                    PreLi.append(str1Res[0][2])
+                    if str1Res[0][1] != 'FAULT':
+                        str1Time = str1Res[0][4]
+                        voltLi.append(str1Res[0][0])
+                        chgLi.append(str1Res[0][3])
+                        MainLi.append(str1Res[0][1])
+                        PreLi.append(str1Res[0][2])
+                    else:
+                        str1Time = current_date
                 except Exception as ex:
                         print(ex)
                         time.sleep(1)
@@ -1210,11 +1345,14 @@ while True:
 
             if len(str2Res) > 0:
                 try:
-                    str2Time = str2Res[0][4]
-                    voltLi.append(str2Res[0][0])
-                    chgLi.append(str2Res[0][3])
-                    MainLi.append(str2Res[0][1])
-                    PreLi.append(str2Res[0][2])
+                    if str2Res[0][1] != 'FAULT':
+                        str2Time = str2Res[0][4]
+                        voltLi.append(str2Res[0][0])
+                        chgLi.append(str2Res[0][3])
+                        MainLi.append(str2Res[0][1])
+                        PreLi.append(str2Res[0][2])
+                    else:
+                        str2Time = current_date
                 except Exception as ex:
                         print(ex)
                         time.sleep(1)
@@ -1230,11 +1368,14 @@ while True:
 
             if len(str3Res) > 0:
                 try:
-                    str3Time = str3Res[0][4]
-                    voltLi.append(str3Res[0][0])
-                    chgLi.append(str3Res[0][3])
-                    MainLi.append(str3Res[0][1])
-                    PreLi.append(str3Res[0][2])
+                    if str3Res[0][1] != 'FAULT':
+                        str3Time = str3Res[0][4]
+                        voltLi.append(str3Res[0][0])
+                        chgLi.append(str3Res[0][3])
+                        MainLi.append(str3Res[0][1])
+                        PreLi.append(str3Res[0][2])
+                    else:
+                        str3Time = current_date
                 except Exception as ex:
                         print(ex)
                         time.sleep(1)
@@ -1250,11 +1391,14 @@ while True:
 
             if len(str4Res) > 0:
                 try:
-                    str4Time = str4Res[0][4]
-                    voltLi.append(str4Res[0][0])
-                    chgLi.append(str4Res[0][3])
-                    MainLi.append(str4Res[0][1])
-                    PreLi.append(str4Res[0][2])
+                    if str4Res[0][1] != 'FAULT':
+                        str4Time = str4Res[0][4]
+                        voltLi.append(str4Res[0][0])
+                        chgLi.append(str4Res[0][3])
+                        MainLi.append(str4Res[0][1])
+                        PreLi.append(str4Res[0][2])
+                    else:
+                        str4Time = current_date
                 except Exception as ex:
                         print(ex)
                         time.sleep(1)
@@ -1270,11 +1414,14 @@ while True:
 
             if len(str5Res) > 0:
                 try:
-                    str5Time = str5Res[0][4]
-                    voltLi.append(str5Res[0][0])
-                    chgLi.append(str5Res[0][3])
-                    MainLi.append(str5Res[0][1])
-                    PreLi.append(str5Res[0][2])
+                    if str5Res[0][1] != 'FAULT':
+                        str5Time = str5Res[0][4]
+                        voltLi.append(str5Res[0][0])
+                        chgLi.append(str5Res[0][3])
+                        MainLi.append(str5Res[0][1])
+                        PreLi.append(str5Res[0][2])
+                    else:
+                        str5Time = current_date
                 except Exception as ex:
                         print(ex)
                         time.sleep(1)
@@ -1288,6 +1435,88 @@ while True:
                 continue
             
             if len(chgLi) > 0 and len(MainLi) > 0:
+                if 'DCHG' in chgLi and 'ON' in MainLi:
+                    ApiUrl = f"http://{host}:8009/ioeprocessoff"    
+                    OFFurl = requests.get(ApiUrl)
+                    resJson = OFFurl.json()
+
+                    print("Discharge OFF")
+
+                    time.sleep(800)
+
+                    str1lag = (curtime - str1Time).total_seconds()
+                    str2lag = (curtime - str2Time).total_seconds()
+                    str3lag = (curtime - str3Time).total_seconds()
+                    str4lag = (curtime - str4Time).total_seconds()
+                    str5lag = (curtime - str5Time).total_seconds()
+
+                    def GetCloseVoltage(dictionary):
+                        close_pairs = []
+                        keys = list(dictionary.keys())
+                        for i in range(len(keys)):
+                            for j in range(i + 1, len(keys)):
+                                key1 = keys[i]
+                                key2 = keys[j]
+                                diff = abs(dictionary[key1] - dictionary[key2])
+                                if diff <= 10:
+                                    close_pairs.append((key1, key2))
+                        return close_pairs
+
+                    strtime = {}
+
+                    try:
+                        if str1lag <= 500:
+                            strtime['str1'] = str1Res[0][0]
+                        if str2lag <= 500:
+                            strtime['str2'] = str2Res[0][0]
+                        if str3lag <= 500:
+                            strtime['str3'] = str3Res[0][0]
+                        if str4lag <= 500:
+                            strtime['str4'] = str4Res[0][0]
+                        if str5lag <= 500:
+                            strtime['str5'] = str5Res[0][0]
+                    except Exception as ex:
+                        print(ex)
+                        time.sleep(3)
+                        continue
+                    
+                    print(strtime)
+
+                    finalStr = GetCloseVoltage(strtime)
+
+                    print(finalStr)
+
+                    all_strings = [item for sublist in finalStr for item in sublist]
+
+                    unique_strings = set(all_strings)
+
+                    strings = ','.join(t for t in unique_strings)
+
+                    strings = strings+',CHG'
+
+                    print(strings)
+
+                    li = strings.split(',')
+
+                    if len(li) >= 2:
+                        apiNo = str(len(li)-1)
+
+                        ApiUrl = API_mapping[apiNo]
+                    else:
+                        time.sleep(2)
+                        continue
+
+                    crate = '0.1'
+
+                    ApiUrl = ApiUrl+f'?strings={strings}&crate={crate}'
+                    print(ApiUrl)
+                    if volt <= 770:
+                        ONurl = requests.get(ApiUrl)
+
+                        print(ONurl.json())
+                    else:
+                        print("Charged!")
+
                 if 'CHG' not in chgLi and 'ON' not in MainLi:
                     str1lag = (curtime - str1Time).total_seconds()
                     str2lag = (curtime - str2Time).total_seconds()
@@ -1351,7 +1580,7 @@ while True:
                         time.sleep(2)
                         continue
 
-                    crate = '0.2'
+                    crate = '0.1'
 
                     ApiUrl = ApiUrl+f'?strings={strings}&crate={crate}'
                     print(ApiUrl)
