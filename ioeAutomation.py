@@ -195,7 +195,8 @@ def send_mail_off(peak,process):
     recId = res[0][0]
 
     sql = "UPDATE EMS.ioePeakDchg SET dischargeOFF = %s where recordId = %s"
-    val = (curtime,recId)    
+    val = (curtime,recId)
+    emscur.execute(sql,val)    
 
     emscur.close()
 
