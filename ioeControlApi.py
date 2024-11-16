@@ -43,9 +43,9 @@ preON_mapping = {
 }
 
 Crate_Map = {
-    '0.1':50,
+    '0.1':60,
     '0.2':100,
-    '0.3':150,
+    '0.3':160,
     '0.4':180,
     '0.5':200
 }
@@ -616,12 +616,12 @@ def ioe3str():
 
             if str1data['batteryCurent'] <= 5 and str2data['batteryCurent'] <= 5 and str3data['batteryCurent'] <= 5:
                 if func == "CHG":
-                    amps = Crate_Map[crate]*3
+                    amps = Crate_Map[crate]*5
                     hx = chgHex(amps)
                     Crate = "5C6500000009011005FC000102"+hx
                     ConvertorON(Crate) 
                 if func == "DCHG":
-                    amps = Crate_Map[crate]*3
+                    amps = Crate_Map[crate]*5
                     hx = dchgHex(amps)
                     Crate = "5C6500000009011005FC000102"+hx
                     ConvertorON(Crate) 
@@ -845,12 +845,12 @@ def ioe4str():
 
             if str1data['batteryCurent'] <= 5 and str2data['batteryCurent'] <= 5 and str3data['batteryCurent'] <= 5 and str4data['batteryCurent'] <= 5:
                 if func == "CHG":
-                    amps = Crate_Map[crate]*4
+                    amps = Crate_Map[crate]*5
                     hx = chgHex(amps)
                     Crate = "5C6500000009011005FC000102"+hx
                     ConvertorON(Crate) 
                 if func == "DCHG":
-                    amps = Crate_Map[crate]*4
+                    amps = Crate_Map[crate]*5
                     hx = dchgHex(amps)
                     Crate = "5C6500000009011005FC000102"+hx
                     ConvertorON(Crate) 
@@ -944,6 +944,7 @@ def ioe4str():
 def ioe5str():
     value = request.args.get('strings')
     crate = request.args.get('crate')
+    print(value,crate)
     if value and crate:
         conv_client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
